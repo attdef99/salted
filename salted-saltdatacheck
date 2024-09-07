@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+
+###################################
+# MINION SCRIPT                   #
+# Sets permissions and reads the  #
+# Salt Minion configuration file. #
+# Created by Matthew Boucher on   #
+# 2024-06-26                      #
+###################################
+
+import subprocess
+
+def check_salt_master_status():
+    try:
+        result = subprocess.run(['systemctl', 'status', 'salt-master'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        if 'active (running)' in result.stdout:
+            print("Salt Master is active and running.")
+            input("Press Enter to continue...")
+        else:
+            print("Salt Master is not active.")
+    except subprocess.CalledProcessError:
+        print("Error checking Salt Master status. Please ensure you have sufficient privileges.")
+
+def set_minion_conf_permissions():
+    try:
+        subprocess.run(['sudo', 'chmod', 'u=rw,g=r,o=r', '/etc/salt/minion.d/minion.conf'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        print("Permissions for minion.conf set successfully.")
+    except subprocess.CalledProcessError:
+        print("Error setting permissions for minion.conf. Please ensure you have sufficient privileges.")
+
+def get_salt_minion_config_and_display():
+    default_masters = ["oitm.az.gatech.edu", "saltm.az.gatech.edu"]
+    master = default_masters[0]  # Use the first default as initial value
+    saltenv = None
+    pillarenv = None
+
+    try:
+        with open('/etc/salt/minion.d/minion.conf', 'r') as f:
+            for line in f:
+                # Check for exact 'master:' key
+                if line.strip().startswith('master:'):
+                    master = line.split(':', 1)[1].strip()
+                # Check for master in list format
+                elif line.strip().startswith('-'):
+                    master = line.split('-', 1)[1].strip()
+                elif line.strip().startswith('saltenv:'):
+                    saltenv = line.split(':', 1)[1].strip()
+                elif line.strip().startswith('pillarenv:'):
+                    pillarenv = line.split(':', 1)[1].strip()
+
+        print("Salt Minion Configuration (/etc/salt/minion.d/minion.conf):")
+        print("MASTER:", master)
+        print("SALTENV:", saltenv)
+        print("PILLARENV:", pillarenv)
+
+        check_master_consistency(master, default_masters)
+
+    except FileNotFoundError:
+        print("Error: Salt Minion configuration file not found.")
+    except IndexError:
+        print("Error parsing the configuration file. Please check the file format.")
+
+def check_master_consistency(current_master, default_masters):
+    if current_master not in default_masters:
+        print("Warning: Current master differs from the default masters!")
+        print("Current Master:", current_master)
+        print("Default Masters:", ', '.join(default_masters))
+        input("Press Enter to continue...")
+
+if __name__ == "__main__":
+    check_salt_master_status()
+    set_minion_conf_permissions()
+    get_salt_minion_config_and_display()
+

@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+
+################################################
+# SALTED-LATMON SCRIPT                         #
+# Monitors VM latency and triggers alert if    #
+# latency exceeds a predefined threshold.      #
+# Created by Matthew Boucher - 2024-05-14      #
+################################################
+
+import logging
+import subprocess
+import os
+import socket
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Constants
+LATENCY_THRESHOLD = 100.0  # latency threshold in ms
+HIGH_LATENCY_THRESHOLD = 150.0  # high latency threshold in ms
+REPORT_FILE = 'latency_report.txt'  # Report file name
+ERROR_FILE = 'latreporterror.txt'  # Error file name
+PING_ADDRESS = '10.138.30.15'  # Address to ping
+
+def get_hostname():
+    """
+    Retrieve the hostname of the machine.
+    """
+    return socket.gethostname()
+
+def check_latency():
+    """
+    Ping the specified address to check latency.
+    Returns:
+        float: The latency in ms.
+    """
+    try:
+        result = subprocess.run(
+            ['ping', '-c', '1', PING_ADDRESS],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True
+        )
+        if result.returncode == 0:
+            # Extract the latency from the ping output
+            output = result.stdout
+            latency_line = [line for line in output.split('\n') if 'time=' in line]
+            if latency_line:
+                latency = float(latency_line[0].split('time=')[1].split(' ')[0])
+                return latency
+        else:
+            logging.error(f'Ping failed: {result.stderr}')
+            return float('inf')  # Return infinity if ping fails
+    except Exception as e:
+        logging.error(f'Error checking latency: {e}')
+        return float('inf')
+
+def trigger_full_check():
+    """
+    Trigger the 'salted-latmon-full' script in the background.
+    """
+    try:
+        script_path = os.path.join(os.path.dirname(__file__), 'salted-latmon-full')
+        with open(REPORT_FILE, 'w') as report_file:
+            process = subprocess.Popen([script_path], stdout=report_file, stderr=subprocess.PIPE, universal_newlines=True)
+        logging.info('Triggered salted-latmon-full script in the background.')
+    except Exception as e:
+        logging.error(f'Failed to trigger salted-latmon-full: {e}')
+
+def remove_error_file():
+    """
+    Check if the error file exists and delete it if needed.
+    """
+    if os.path.exists(ERROR_FILE):
+        os.remove(ERROR_FILE)
+
+def write_error_message(message):
+    """
+    Write the error message to the error file.
+    """
+    try:
+        with open(ERROR_FILE, 'a') as error_file:
+            error_file.write(f"{message}\n")
+    except Exception as e:
+        logging.error(f'Failed to write to {ERROR_FILE}: {e}')
+
+def handle_high_latency(latency):
+    """
+    Handle the scenario where latency is really high.
+    """
+    logging.critical(f'REALLY HIGH LATENCY - {latency:.2f} ms')
+    print(f'REALLY HIGH LATENCY - {latency:.2f} ms')
+    write_error_message(f"REALLY HIGH LATENCY - {latency:.2f} ms")
+
+def main():
+    # Display hostname
+    hostname = get_hostname()
+    print(f'Running SALTED on {hostname}')
+    
+    # Remove error file if it exists
+    remove_error_file()
+    
+    # Check if report file exists and delete it if needed
+    if os.path.exists(REPORT_FILE):
+        os.remove(REPORT_FILE)
+    
+    # Trigger the full check script
+    trigger_full_check()
+
+    current_latency = check_latency()
+    if current_latency > HIGH_LATENCY_THRESHOLD:
+        handle_high_latency(current_latency)
+    elif current_latency > LATENCY_THRESHOLD:
+        logging.warning(f'High latency alert: {current_latency:.2f} ms exceeds threshold of {LATENCY_THRESHOLD} ms')
+        write_error_message("LATENCY ALERT ERROR")
+    else:
+        logging.info(f'Latency is normal: {current_latency:.2f} ms')
+
+if __name__ == '__main__':
+    main()
+

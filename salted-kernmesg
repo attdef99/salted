@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+
+# ##########################################################
+# SALTED-KERNMESG SCRIPT                                   #
+# Script to check dmesg for hardware or kernel issues.     #
+# Summarizes and reports potential problems.               #
+# Created by Matthew Boucher - 2024-05-08                  #
+# ##########################################################
+
+import subprocess
+import datetime
+
+def get_dmesg_output():
+    """ Execute the dmesg command and return its output. """
+    try:
+        output = subprocess.check_output(['dmesg'], stderr=subprocess.STDOUT, universal_newlines=True)
+    except subprocess.CalledProcessError as e:
+        print("Failed to fetch dmesg output:", e)
+        return ""
+    return output
+
+def analyze_dmesg(output):
+    """ Analyze dmesg output for errors and warnings. """
+    issues = []
+    for line in output.splitlines():
+        if 'error' in line.lower() or 'fail' in line.lower() or 'warning' in line.lower():
+            issues.append(line)
+    return issues
+
+def report_issues(issues):
+    """ Report the found issues. """
+    if issues:
+        print(f"Report generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print("Detected potential issues in dmesg output:")
+        for issue in issues:
+            print(issue)
+    else:
+        print("No significant issues detected in dmesg output.")
+
+def main():
+    dmesg_output = get_dmesg_output()
+    issues = analyze_dmesg(dmesg_output)
+    report_issues(issues)
+
+if __name__ == "__main__":
+    main()
+

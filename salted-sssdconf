@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+
+################################### 
+# SALTED-SSSDCONF SCRIPT          #
+# Checks if required files exist  #
+# in /etc/sssd/conf.d. If missing #
+# alerts and pauses the script.   #
+# Created by Matthew Boucher       #
+# 2024-09-06                      #
+###################################
+
+import subprocess
+import sys
+
+# Directory to check
+conf_dir = '/etc/sssd/conf.d'
+
+# Required files
+required_files = ['ad.gatech.edu.conf', 'gted.gatech.edu.conf']
+
+# Function to run a command using sudo
+def run_sudo_command(command):
+    try:
+        result = subprocess.run(
+            ['sudo'] + command, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE, 
+            universal_newlines=True
+        )
+        return result
+    except Exception as e:
+        print(f"Error running command: {command}\n{e}")
+        sys.exit(1)
+
+# Check if the directory exists using sudo
+check_dir_command = ['test', '-d', conf_dir]
+dir_check_result = run_sudo_command(check_dir_command)
+
+if dir_check_result.returncode != 0:
+    print(f"Directory '{conf_dir}' does not exist or cannot be accessed.")
+    sys.exit(1)
+
+# Get list of files in the directory using sudo
+list_files_command = ['ls', '-1', conf_dir]
+files_result = run_sudo_command(list_files_command)
+
+if files_result.returncode != 0:
+    print(f"Error accessing directory '{conf_dir}': {files_result.stderr}")
+    sys.exit(1)
+
+existing_files = files_result.stdout.splitlines()
+
+# Check if required files are present
+missing_files = [file for file in required_files if file not in existing_files]
+
+# If any files are missing, alert the user and pause
+if missing_files:
+    print("Missing the following required files:")
+    for file in missing_files:
+        print(f"  - {file}")
+    
+    # Display the current contents of the directory
+    print("\nCurrent directory contents:")
+    for file in existing_files:
+        print(f"  - {file}")
+
+    # Pause the script until user input
+    print("\nPlease resolve the issue and press Enter to continue...")
+    input()
+else:
+    # Display message when all files are present
+    print(f"All required files are present in '{conf_dir}':")
+    for file in required_files:
+        print(f"  - {file}")
+

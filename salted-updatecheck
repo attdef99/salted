@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+
+###################################
+# SALTED-UPDATECHECK SCRIPT       #
+# Checks for available system     #
+# updates using yum and displays  #
+# the number of patches needed if #
+# any. Additionally, shows the    #
+# last reboot date and time.      #
+# Created by Matthew Boucher on   #
+# 2024-05-20.                     #
+###################################
+
+import subprocess
+import sys
+from datetime import datetime
+import time
+
+def check_updates():
+    try:
+        # Check for available updates, compatible with Python 3.6
+        result = subprocess.run(['yum', 'check-update'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        
+        if result.returncode == 100:
+            # Parsing the output to count the number of available updates
+            updates = result.stdout.strip().split('\n')
+            # Filter out empty lines and lines that do not represent packages
+            updates = [line for line in updates if line and not line.startswith('Loaded plugins')]
+            num_updates = len(updates) - 1  # Subtracting the header line
+            print(f"System needs to be updated with {num_updates} patches. Run 'sudo yum update' to update.")
+            input("Press Enter to continue...")
+            return num_updates
+        elif result.returncode == 0:
+            print("System is up-to-date.")
+            return 0
+        else:
+            print("Error checking for updates. You may need to check manually.")
+            return None
+            
+    except subprocess.CalledProcessError as e:
+        if e.returncode != 100:
+            print(f"Error checking updates: {e}", file=sys.stderr)
+            sys.exit(1)
+
+def check_last_reboot():
+    try:
+        # Check the last reboot time
+        result = subprocess.run(['who', '-b'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        if result.returncode == 0:
+            last_reboot_str = result.stdout.strip().split(' ')[-2:]
+            last_reboot_time = ' '.join(last_reboot_str)
+            last_reboot = datetime.strptime(last_reboot_time, '%Y-%m-%d %H:%M')
+            current_time = datetime.now()
+            delta = current_time - last_reboot
+            print(f"Last reboot: {last_reboot.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"Days since last reboot: {delta.days}")
+            return last_reboot, delta.days
+        else:
+            print("Error checking last reboot time. You may need to check manually.")
+            return None, None
+    except subprocess.CalledProcessError as e:
+        print(f"Error checking last reboot time: {e}", file=sys.stderr)
+        sys.exit(1)
+
+def check_recent_reboot(days_since_last_reboot, last_reboot, system_name="system"):
+    if days_since_last_reboot is not None:
+        if days_since_last_reboot <= 4:
+            if days_since_last_reboot == 0:
+                message = f"{system_name} REBOOTED TODAY."
+                print(message)
+                print()  # Blank line after the message
+                try:
+                    with open("saltederrors.txt", 'a') as f:
+                        f.write(f"DAYS SINCE REBOOT: {days_since_last_reboot} {last_reboot.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                except Exception as e:
+                    print(f"Error writing to file: {e}", file=sys.stderr)
+            else:
+                message = f"{system_name} was rebooted {days_since_last_reboot} days ago."
+                if days_since_last_reboot <= 1:
+                    message = message.upper()
+                    time.sleep(2)
+                print(message)
+                print()  # Blank line after the message
+                try:
+                    with open("saltederrors.txt", 'a') as f:
+                        f.write(f"DAYS SINCE REBOOT: {days_since_last_reboot} {last_reboot.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                except Exception as e:
+                    print(f"Error writing to file: {e}", file=sys.stderr)
+
+def write_reboot_info(last_reboot, days_since_last_reboot, filename="salteddata.txt"):
+    try:
+        with open(filename, 'a') as f:
+            f.write(f"Rebootdate:{last_reboot.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Rebootdays:{days_since_last_reboot}\n")
+    except Exception as e:
+        print(f"Error writing to file: {e}", file=sys.stderr)
+
+def write_update_info(num_updates, filename="saltederrors.txt"):
+    try:
+        with open(filename, 'a') as f:
+            f.write(f"Updates are needed: {num_updates}\n")
+    except Exception as e:
+        print(f"Error writing to file: {e}", file=sys.stderr)
+
+if __name__ == "__main__":
+    num_updates = check_updates()
+    last_reboot, days_since_last_reboot = check_last_reboot()
+    if last_reboot is not None and days_since_last_reboot is not None:
+        write_reboot_info(last_reboot, days_since_last_reboot)
+        check_recent_reboot(days_since_last_reboot, last_reboot)
+    if num_updates is not None and num_updates > 0:
+        write_update_info(num_updates)
+

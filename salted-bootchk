@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+
+###################################
+# SALTED-BOOTCHK SCRIPT           #
+# Checks the last three system    #
+# reboots time and durations from #
+# logs.                           #
+# Created by Matthew Boucher on   #
+# 2024-05-06                      #
+###################################
+
+import subprocess
+import sys
+import re
+from datetime import datetime
+
+def get_reboot_times():
+    try:
+        # Command to fetch the last three reboots using journalctl
+        command = "journalctl --list-boots | tail -n 3"
+        # Running the command
+        result = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        
+        if result.returncode == 0 and result.stdout:
+            # Output the result
+            print("Last 3 Reboot Times and Durations:")
+            print("----------------------------------")
+            # Parse each line of the command output
+            for line in result.stdout.strip().split('\n'):
+                columns = line.split()
+                if len(columns) >= 3:
+                    boot_id = columns[0]
+                    start_str = ' '.join(columns[1:3])
+                    end_str = ' '.join(columns[3:5])
+
+                    try:
+                        start_time = datetime.strptime(start_str, '%Y-%m-%d %H:%M:%S')
+                        end_time = datetime.strptime(end_str, '%Y-%m-%d %H:%M:%S')
+                        duration = end_time - start_time
+                        print(f"Reboot ID: {boot_id}")
+                        print(f"Start Time: {start_time}")
+                        print(f"End Time: {end_time}")
+                        print(f"Duration: {duration}")
+                        print("-------------")
+                    except ValueError as ve:
+                        print(f"Error parsing dates for boot ID {boot_id}: {ve}", file=sys.stderr)
+        else:
+            print("Failed to retrieve reboot data or no reboots found:", file=sys.stderr)
+            print(result.stderr, file=sys.stderr)
+    except Exception as e:
+        print(f"An error occurred: {str(e)}", file=sys.stderr)
+
+if __name__ == "__main__":
+    get_reboot_times()
+

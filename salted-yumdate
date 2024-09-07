@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+"""
+SALTED-YUMDATE
+
+A Python script to determine the last time the 'yum history' command was run with an Update action.
+
+Usage: SALTED-YUMDATE
+"""
+
+import subprocess
+import re
+
+def get_last_update_time():
+    try:
+        # Run yum history command with sudo and capture the output
+        history_output = subprocess.check_output(['sudo', 'yum', 'history']).decode('utf-8')
+
+        # Split the output into lines
+        history_lines = history_output.split('\n')
+
+        # Look for the last entry with "Update" in the action field
+        last_update_time = None
+        for line in history_lines:
+            if re.search(r'\b(update|up)\b', line, re.IGNORECASE):
+                fields = line.split('|')
+                last_update_time = fields[2].strip()
+                break
+
+        return last_update_time
+
+    except subprocess.CalledProcessError:
+        return None
+
+def main():
+    last_update_time = get_last_update_time()
+    if last_update_time:
+        print("Last update was performed on:", last_update_time)
+    else:
+        print("No update history found.")
+
+if __name__ == "__main__":
+    main()
+

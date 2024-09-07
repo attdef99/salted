@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+
+###########################################################
+# SALTED-VMINFO SCRIPT                                    #
+# This script checks and compares the VMware Tools        #
+# version against a known version, advises on updates,   #
+# and displays the system name.                           #
+# Created by Matthew Boucher - 2024-05-09                 #
+###########################################################
+
+import subprocess
+import socket
+
+def get_vmware_version():
+    # Current version to compare against
+    current_version = "12.2.5.43614 (build-21855600)"
+    
+    # Get the system name
+    system_name = socket.gethostname()
+    
+    try:
+        # Execute the vmware-toolbox-cmd command
+        result = subprocess.run(['vmware-toolbox-cmd', '-v'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        
+        # Check if the command was successful
+        if result.returncode == 0:
+            installed_version = result.stdout.strip()
+            print(f"System: {system_name}")
+            print("Installed VMware Tools Version:", installed_version)
+            
+            # Blank line before version check
+            print()
+
+            # Compare the fetched version with the current version
+            if installed_version == current_version:
+                print("VMware Tools is up to date.")
+            else:
+                print("Update required: VMware Tools is not up to date.")
+        else:
+            print("Failed to get VMware Tools version:", result.stderr.strip())
+    except Exception as e:
+        print("Error executing command:", str(e))
+
+if __name__ == "__main__":
+    get_vmware_version()
+

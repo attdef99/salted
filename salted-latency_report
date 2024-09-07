@@ -1,0 +1,45 @@
+#!/usr/bin/env python3
+
+###################################
+# SALTED-LATENCY_REPORT SCRIPT    #
+# Script to check for and display #
+# contents of latency_report.txt  #
+# if latreporterror.txt is found  #
+# Created by Matthew Boucher      #
+# 2024-05-22                      #
+###################################
+
+import os
+import time
+import socket
+
+def get_hostname():
+    return socket.gethostname()
+
+def main():
+    error_file_name = 'latreporterror.txt'
+    report_file_name = 'latency_report.txt'
+    attempts = 3
+
+    for attempt in range(attempts):
+        if os.path.isfile(error_file_name):
+            if os.path.isfile(report_file_name):
+                with open(report_file_name, 'r') as file:
+                    contents = file.read()
+                    print(contents)
+                os.remove(report_file_name)
+                print(f"{report_file_name} has been deleted.")
+            else:
+                print(f"{report_file_name} not found.")
+            return
+        else:
+            print(f"Attempt {attempt + 1}: {error_file_name} not found.")
+            if attempt < attempts - 1:
+                time.sleep(5)
+
+    hostname = get_hostname()
+    print(f"No latency issues were discovered on {hostname}.")
+
+if __name__ == "__main__":
+    main()
+

@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+
+###################################
+# SALTED-UNAME SCRIPT             #
+# Summary: Extracts EL and kernel #
+# version info. Pauses if         #
+# uncommon OS is detected.        #
+# created by Matthew Boucher      #
+# 2024-03-26                      #
+###################################
+
+import subprocess
+import re
+
+def get_kernel_and_el_version():
+    """
+    Executes the `uname -r` command to get kernel release info, then extracts
+    the "el" version indicative of RHEL-based distributions along with the
+    full kernel version.
+    """
+    try:
+        kernel_version = subprocess.check_output(["uname", "-r"], universal_newlines=True).strip()
+        # Regular expression to extract the "el" version information.
+        el_match = re.search(r'el\d+', kernel_version)
+        el_version = el_match.group(0) if el_match else "EL version not found"
+        return kernel_version, el_version
+    except subprocess.CalledProcessError as e:
+        print("Failed to execute uname -r:", e)
+        return None, None
+
+def check_and_pause_for_uncommon_os(el_version):
+    """
+    Checks if the EL version is common (el7, el8, or el9). If uncommon, pauses the
+    script until the user hits Enter.
+    """
+    if el_version not in ["el7", "el8", "el9"]:
+        print(f"Uncommon OS detected: {el_version}.")
+        input("Press Enter to continue...")
+
+if __name__ == "__main__":
+    kernel_version, el_version = get_kernel_and_el_version()
+    if kernel_version and el_version:
+        print(f"Kernel Version: {kernel_version}, EL Version: {el_version}")
+        check_and_pause_for_uncommon_os(el_version)
+    else:
+        print("Could not retrieve kernel or EL version information.")
+

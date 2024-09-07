@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+
+###################################
+#     SALTED-MISCPROC SCRIPT      #
+# Check folders and their         #
+# associated processes.           #
+# created by Matthew Boucher      #
+# 2024-05-23                      #
+###################################
+
+import os
+import subprocess
+import socket
+
+folders_processes = {
+    "/etc/cups/": [("cupsd", "Print service")],
+    "/etc/ssh/": [("sshd", "SSH server")],
+    "/etc/nginx/": [("nginx", "Web server")],
+    "/etc/apache2/": [("apache2", "Web server")],
+    "/etc/httpd/": [("apache2", "Web server")],
+    "/etc/mysql/": [("mysql", "Database server"), ("mariadbd", "MariaDB server")],
+    "/etc/postgresql/": [("postgresql", "Database server")],
+    "/etc/docker/": [("dockerd", "Container engine")],
+    "/etc/kubernetes/": [("kubelet", "Kubernetes node")],
+    "/etc/redis/": [("redis-server", "Cache server")],
+    "/etc/mongod/": [("mongod", "Database server")],
+    "/etc/rabbitmq/": [("rabbitmq-server", "Message broker")],
+    "/etc/elasticsearch/": [("elasticsearch", "Search engine")],
+    "/etc/prometheus/": [("prometheus", "Monitoring")],
+    "/etc/grafana/": [("grafana-server", "Dashboard service")],
+    "/etc/zabbix/": [("zabbix_server", "Monitoring")],
+    "/etc/tomcat/": [("tomcat", "Application server")],
+    "/etc/oracle/": [("oracle", "Database server")]
+}
+
+def check_folder_process(folder, process, description):
+    status = {"folder": folder, "process": process, "description": description, "exists": False, "running": False, "enabled": "Unknown", "exited": False}
+    
+    if os.path.exists(folder):
+        status["exists"] = True
+        try:
+            result = subprocess.run(["pgrep", "-x", process], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+            status["running"] = result.returncode == 0
+
+            service_check = subprocess.run(["systemctl", "is-enabled", process], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+            if "enabled" in service_check.stdout:
+                status["enabled"] = "Enabled"
+            elif "disabled" in service_check.stdout:
+                status["enabled"] = "Disabled"
+
+            status_output = subprocess.run(["systemctl", "status", process], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+            for line in status_output.stdout.splitlines():
+                if "Active:" in line and "exited" in line.lower():
+                    status["exited"] = True
+                    break
+        except Exception as e:
+            status["enabled"] = f"Error: {e}"
+    
+    return status
+
+def show_status(process):
+    try:
+        status_output = subprocess.run(["systemctl", "status", process], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        for line in status_output.stdout.splitlines():
+            if "Active:" in line:
+                active_status = line.strip()
+                is_exited = "exited" in active_status.lower()
+                status_msg = f"{process} - {active_status}"
+                if is_exited:
+                    status_msg += " (Process has exited)"
+                print(status_msg)
+                break
+    except Exception as e:
+        print(f"Failed to retrieve status for {process}: {e}")
+
+def write_results(file_path, hostname, results):
+    with open(file_path, 'w') as file:
+        file.write(f"Hostname: {hostname}\n\n")
+        file.write(f"{'Folder':<20} {'Process':<15} {'Description':<20} {'Exists':<7} {'Running':<8} {'Enabled':<8}\n")
+        file.write("-" * 85 + "\n")
+        for result in results:
+            file.write(f"{result['folder']:<20} {result['process']:<15} {result['description']:<20} {'Yes' if result['exists'] else 'No':<7} {'Yes' if result['running'] else 'No':<8} {result['enabled']:<8}\n")
+
+def main():
+    hostname = socket.gethostname()
+    specific_file_path = f'data/miscproc/miscproc-{hostname}.txt'
+    general_file_path = 'data/miscproc.txt'
+    
+    current_results = []
+    issues_found = False
+
+    for folder, services in folders_processes.items():
+        if os.path.exists(folder):
+            for service, description in services:
+                result = check_folder_process(folder, service, description)
+                if not result['running']:
+                    print(f"Alert: {result['process']} (Folder: {result['folder']}) is not running.")
+                    show_status(result['process'])
+                    if not result['exited']:
+                        current_results.append(result)
+                    issues_found = True
+
+                if result['enabled'] != "Enabled" and not result['exited']:
+                    current_results.append(result)
+                    print(f"Alert: {result['process']} (Folder: {result['folder']}) - Running: {'Yes' if result['running'] else 'No'}, Enabled: {result['enabled']}")
+                    issues_found = True
+
+    if issues_found and current_results:
+        if not os.path.exists('data/miscproc'):
+            os.makedirs('data/miscproc')
+
+        # Write to the hostname-specific file
+        write_results(specific_file_path, hostname, current_results)
+        
+        # Write to the general miscproc.txt file
+        write_results(general_file_path, hostname, current_results)
+    else:
+        print("Check completed. No issues found.")
+
+if __name__ == "__main__":
+    main()
+

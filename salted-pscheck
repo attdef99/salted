@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+
+"""
+Script: process_checker.py
+Author: [Your Name]
+Description: This script checks running processes using the `ps -ef` command and
+             identifies processes that might require attention.
+"""
+
+import subprocess
+
+def check_processes():
+    # Run the ps -ef command
+    process = subprocess.Popen(["ps", "-ef"], stdout=subprocess.PIPE)
+    output, _ = process.communicate()
+
+    # Decode the output and split it into lines
+    output = output.decode()
+    lines = output.split('\n')
+
+    # Check each line for processes of interest
+    for line in lines:
+        # Split the line into columns
+        columns = line.split()
+        if len(columns) >= 8:  # Minimum number of columns expected
+            # Extract relevant information
+            user = columns[0]
+            pid = columns[1]
+            cmd = ' '.join(columns[7:])
+            # Example of a condition to check for specific processes
+            if 'python' in cmd:
+                print(f"Process running Python script: PID {pid}, User: {user}, Command: {cmd}")
+
+if __name__ == "__main__":
+    check_processes()
+

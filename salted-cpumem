@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+
+###################################
+# SALTED-CPUMEM SCRIPT            #
+# Monitor CPU and memory usage    #
+# Alerts if usage exceeds 60%     #
+# Pauses if usage exceeds 80%     #
+# Created by Matthew Boucher      #
+# 2024-05-20                      #
+###################################
+
+import os
+import sys
+import argparse
+import time
+
+def check_and_delete_swap_file():
+    """Check for and delete the swap file if it exists."""
+    swap_file = ".salted-cpumem.swp"
+    if os.path.isfile(swap_file):
+        try:
+            os.remove(swap_file)
+            print(f"Deleted swap file: {swap_file}")
+        except Exception as e:
+            print(f"Error deleting swap file: {e}", file=sys.stderr)
+            sys.exit(1)
+
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="Monitor CPU and memory usage.")
+    parser.add_argument("-i", "--interval", type=int, default=1, help="Interval in seconds for CPU usage measurement.")
+    return parser.parse_args()
+
+def read_cpu_usage():
+    """Read the CPU usage from /proc/stat."""
+    with open('/proc/stat', 'r') as file:
+        cpu_line = file.readline()
+    cpu_times = list(map(int, cpu_line.split()[1:]))
+    idle_time = cpu_times[3]
+    total_time = sum(cpu_times)
+    return idle_time, total_time
+
+def calculate_cpu_usage(interval):
+    """Calculate the CPU usage over an interval."""
+    idle_time1, total_time1 = read_cpu_usage()
+    time.sleep(interval)
+    idle_time2, total_time2 = read_cpu_usage()
+
+    idle_delta = idle_time2 - idle_time1
+    total_delta = total_time2 - total_time1
+
+    cpu_usage = round(100 * (1 - idle_delta / total_delta))
+    return cpu_usage
+
+def read_memory_usage():
+    """Read the memory usage from /proc/meminfo."""
+    mem_info = {}
+    with open('/proc/meminfo', 'r') as file:
+        for line in file:
+            key, value = line.split(':')
+            mem_info[key] = int(value.split()[0])
+    total_memory = mem_info['MemTotal']
+    free_memory = mem_info['MemFree'] + mem_info['Buffers'] + mem_info['Cached']
+    memory_usage = round(100 * (1 - free_memory / total_memory))
+    return memory_usage, total_memory / 1024  # Convert kB to MB
+
+def display_current_usage(interval):
+    """Display the current CPU and memory usage."""
+    try:
+        cpu_usage = calculate_cpu_usage(interval)
+        print(f"Current CPU Usage: {cpu_usage}%")
+
+        memory_usage, total_memory = read_memory_usage()
+        print(f"Current Memory Usage: {memory_usage}%\n")
+    except Exception as e:
+        print(f"Error retrieving system stats: {e}", file=sys.stderr)
+
+def display_total_capacities():
+    """Display the total CPU and memory capacities."""
+    try:
+        with open('/proc/cpuinfo', 'r') as file:
+            cpu_count = sum(1 for line in file if line.startswith('processor'))
+
+        print(f"Total CPU cores (physical): {cpu_count}")
+
+        _, total_memory = read_memory_usage()
+        print(f"Total Memory: {total_memory / 1024:.2f} GB")
+        print()
+
+    except Exception as e:
+        print(f"Error retrieving system capacities: {e}", file=sys.stderr)
+
+def check_cpu_count():
+    """Check the total number of physical CPU cores and warn if low."""
+    try:
+        with open('/proc/cpuinfo', 'r') as file:
+            cpu_count = sum(1 for line in file if line.startswith('processor'))
+
+        if cpu_count <= 2:
+            print("THE CPUS ARE LOW ON THIS SYSTEM.\n")
+            
+    except Exception as e:
+        print(f"Error checking CPU count: {e}", file=sys.stderr)
+
+def check_resource_alerts(interval):
+    """Check CPU and memory usage, alert if over 60%, and pause if over 80%."""
+    try:
+        cpu_usage = calculate_cpu_usage(interval)
+        memory_usage, _ = read_memory_usage()
+
+        if cpu_usage > 60:
+            print(f"WARNING: CPU usage is high at {cpu_usage}%.\n")
+
+        if memory_usage > 60:
+            print(f"WARNING: Memory usage is high at {memory_usage}%.\n")
+
+        if cpu_usage > 80 or memory_usage > 80:
+            print("PAUSING: CPU or Memory usage exceeded 80%.")
+            input("Press Enter to continue...")
+            print()
+
+    except Exception as e:
+        print(f"Error checking resource alerts: {e}", file=sys.stderr)
+
+def main():
+    check_and_delete_swap_file()  # Check and delete the swap file before proceeding
+    args = parse_args()
+    display_current_usage(args.interval)
+    display_total_capacities()
+    check_cpu_count()
+    check_resource_alerts(args.interval)
+
+if __name__ == "__main__":
+    main()
+

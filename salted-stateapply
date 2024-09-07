@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+
+###################################
+# SALT-APPLY SCRIPT               #
+# Summary: Checks for and deletes #
+# saltdata.txt if it exists.      #
+# Executes `sudo salt-call        #
+# state.apply` command from the   #
+# /tmp directory. Writes standard #
+# output to saltdata.txt. If no   #
+# errors, displays "No SALT       #
+# errors found" and shows last 8  #
+# lines of saltdata.txt.          #
+# created by Matthew Boucher on   #
+# 2024-06-26                      #
+###################################
+
+import subprocess
+import os
+import socket
+
+def check_salt_master_status():
+    """
+    Runs the `systemctl status salt-master` command and checks
+    if the output contains 'active (running)'.
+    """
+    try:
+        result = subprocess.run(["systemctl", "status", "salt-master"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        if "active (running)" in result.stdout:
+            return True
+        return False
+    except subprocess.CalledProcessError as e:
+        print("An error occurred while checking the salt-master status. Error details:")
+        print(e.stderr)
+        return False
+
+def delete_existing_file(filename):
+    """Deletes the file if it exists."""
+    if os.path.exists(filename):
+        os.remove(filename)
+
+def run_salt_state_apply():
+    """
+    Executes the `sudo salt-call state.apply` command using subprocess,
+    from the /tmp directory. Writes the standard output to saltdata.txt
+    and checks for errors. Displays last 8 lines of saltdata.txt if
+    no errors are found.
+    """
+    delete_existing_file("saltdata.txt")
+
+    try:
+        # Execute the command from /tmp directory, capturing both outputs
+        result = subprocess.run(["sudo", "salt-call", "state.apply"], cwd="/tmp", stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        # Write the standard output to a file
+        with open("saltdata.txt", "w") as file:
+            file.write(result.stdout)
+        
+        # Check for error output; display if present
+        if result.stderr.strip():
+            print("Error Output:")
+            print(result.stderr)
+        else:
+            # No errors found, display a message and the last 8 lines of saltdata.txt
+            print("No SALT errors found.")
+            with open("saltdata.txt", "r") as file:
+                lines = file.readlines()
+                # Display the last 8 lines
+                print("".join(lines[-8:]))
+                
+    except subprocess.CalledProcessError as e:
+        # Handles the case where the command fails
+        print("An error occurred while executing the command. Error details:")
+        print(e.stderr)
+
+if __name__ == "__main__":
+    system_name = socket.gethostname()
+    if check_salt_master_status():
+        print(f"{system_name} might be a salt master, so state.apply is not running.")
+        input("Press Enter to continue...")
+    else:
+        run_salt_state_apply()
+

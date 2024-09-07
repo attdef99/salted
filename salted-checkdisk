@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+
+### 
+# Author: Matthew Boucher
+# Date: 2024-05-10
+###
+
+import os
+import subprocess
+
+def run_iostat():
+    # Run iostat -dx command and capture its output
+    process = subprocess.Popen(['iostat', '-dx'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    stdout, stderr = process.communicate()
+    return stdout
+
+def get_disk_stats():
+    # Path to the file containing disk I/O statistics
+    stat_file = '/proc/diskstats'
+    
+    # Read disk I/O statistics
+    with open(stat_file, 'r') as f:
+        lines = f.readlines()
+
+    disk_stats = {}
+    
+    # Parse each line to extract disk statistics
+    for line in lines:
+        fields = line.strip().split()
+        device_name = fields[2]
+        read_ios = int(fields[3])
+        read_merges = int(fields[4])
+        read_sectors = int(fields[5])
+        read_time = int(fields[6])
+        write_ios = int(fields[7])
+        write_merges = int(fields[8])
+        write_sectors = int(fields[9])
+        write_time = int(fields[10])
+        io_in_progress = int(fields[11])
+        io_time = int(fields[12])
+        io_weighted_time = int(fields[13])
+        
+        disk_stats[device_name] = {
+            'read_ios': read_ios,
+            'read_merges': read_merges,
+            'read_sectors': read_sectors,
+            'read_time': read_time,
+            'write_ios': write_ios,
+            'write_merges': write_merges,
+            'write_sectors': write_sectors,
+            'write_time': write_time,
+            'io_in_progress': io_in_progress,
+            'io_time': io_time,
+            'io_weighted_time': io_weighted_time
+        }
+    
+    return disk_stats
+
+def compare_io_to_standards(io_stats, device_type):
+    # Industry standards for SATA and SSD
+    sata_standards = {
+        'read_ios': 100,
+        'write_ios': 100,
+        # Add more standards as needed
+    }
+    
+    ssd_standards = {
+        'read_ios': 1000,
+        'write_ios': 1000,
+        # Add more standards as needed
+    }
+    
+    if device_type == 'SATA':
+        standards = sata_standards
+    elif device_type == 'SSD':
+        standards = ssd_standards
+    else:
+        raise ValueError("Invalid device type. Use 'SATA' or 'SSD'.")
+    
+    # Compare I/O numbers with industry standards
+    result = {}
+    for metric, value in io_stats.items():
+        standard_value = standards.get(metric, None)
+        if standard_value is not None:
+            difference = value - standard_value
+            above_or_below = "above" if difference > 0 else "below" if difference < 0 else "equal to"
+            result[metric] = {
+                'current': value,
+                'standard': standard_value,
+                'comparison': above_or_below
+            }
+    
+    return result
+
+def main():
+    # Run iostat -dx and display its output
+    iostat_output = run_iostat()
+    print("IOStat Output:")
+    print(iostat_output)
+    print()
+    
+    disk_stats = get_disk_stats()
+    
+    # Print disk I/O statistics
+    for device, stats in disk_stats.items():
+        print(f"Device: {device}")
+        print(f"  Read I/O Operations: {stats['read_ios']}")
+        print(f"  Write I/O Operations: {stats['write_ios']}")
+        
+        # Determine device type based on naming convention (SATA or SSD)
+        device_type = 'SATA' if 'sd' in device else 'SSD'
+        
+        # Compare I/O numbers with industry standards
+        comparison_result = compare_io_to_standards(stats, device_type)
+        print(f"  I/O Comparison to Standards for {device_type}:")
+        for metric, info in comparison_result.items():
+            print(f"    {metric}: Current: {info['current']}, Standard: {info['standard']}, Comparison: {info['comparison']}")
+        
+        print()
+
+if __name__ == "__main__":
+    main()
+

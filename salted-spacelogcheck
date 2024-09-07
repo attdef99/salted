@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+
+###################################
+# SALTED-SPACELOGCHECK SCRIPT     #
+# Delete log files over two years #
+# old, display their sizes, and   #
+# notify if any files are deleted.#
+# created by Matthew Boucher      #
+# on 2023-08-23.                  #
+###################################
+
+import os
+import subprocess
+import time
+from datetime import datetime
+
+# Define the directory where logs are stored
+log_directory = '/var/log/'
+
+# Get the current time and calculate the time threshold (two years ago)
+current_time = time.time()
+two_years_ago = current_time - (2 * 365 * 24 * 60 * 60)
+
+# Function to run a command with sudo and capture its output
+def run_sudo_command(command):
+    result = subprocess.run(
+        command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True
+    )
+    if result.returncode != 0:
+        print(f"Error running command: {command}")
+        print(result.stderr)
+    return result.stdout.strip()
+
+# Loop through all files in the log directory
+for root, dirs, files in os.walk(log_directory):
+    for file in files:
+        file_path = os.path.join(root, file)
+        
+        try:
+            # Get the last modified time using sudo
+            file_mtime_command = f"sudo stat -c %Y {file_path}"
+            file_mtime = int(run_sudo_command(file_mtime_command))
+            
+            # Get the file size using sudo
+            file_size_command = f"sudo stat -c %s {file_path}"
+            file_size = int(run_sudo_command(file_size_command))
+            
+            # Check if the file is older than two years
+            if file_mtime < two_years_ago:
+                # Convert the last modified time to a readable format
+                mtime_readable = datetime.fromtimestamp(file_mtime).strftime('%Y-%m-%d %H:%M:%S')
+                # Display the file path, last modified time, and size in KB
+                print(f"Deleting log file: {file_path}")
+                print(f"  Last modified: {mtime_readable}")
+                print(f"  Size: {file_size / 1024:.2f} KB\n")
+
+                # Delete the file using sudo
+                delete_command = f"sudo rm {file_path}"
+                run_sudo_command(delete_command)
+
+        except FileNotFoundError:
+            print(f"File deleted during execution: {file_path}")
+

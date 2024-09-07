@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+import os
+
+# Define directories to exclude
+exclude_dirs = ['/nethome']
+
+# Define file extensions to consider
+extensions = ['.conf', '.config', '.ini']
+
+# Dictionary to store server purposes and key services
+server_info = {}
+
+# Function to determine server purpose and key services from file contents
+def analyze_file(file_path):
+    # Implement your logic here to analyze the file content
+    # For demonstration purposes, let's just print the file path
+    print("Analyzing file:", file_path)
+
+# Function to recursively traverse directories
+def traverse_directory(directory):
+    for root, dirs, files in os.walk(directory):
+        # Exclude directories defined in exclude_dirs
+        dirs[:] = [d for d in dirs if os.path.join(root, d) not in exclude_dirs]
+        for file in files:
+            if os.path.splitext(file)[1] in extensions:
+                file_path = os.path.join(root, file)
+                analyze_file(file_path)
+
+# Main function
+def main():
+    traverse_directory('/')
+    print("Server information:", server_info)
+
+if __name__ == "__main__":
+    main()
+

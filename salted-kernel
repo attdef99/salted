@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+
+###########################################################
+# SALTED-KERNEL SCRIPT                                    #
+# Checks the current kernel version on EL systems and     #
+# displays EL distribution information along with the     #
+# system's hostname in a specific format.                 #
+# Created by Matthew Boucher - 2024-05-09                 #
+###########################################################
+
+import subprocess
+import socket
+
+def get_kernel_version():
+    try:
+        # Using subprocess to execute the 'uname' command and capture the output
+        result = subprocess.run(['uname', '-r'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        
+        if result.stderr:
+            print(f"Error getting kernel version: {result.stderr}")
+        else:
+            print(f"Current Kernel Version: {result.stdout.strip()}")
+    except Exception as e:
+        print(f"Failed to get kernel version due to: {e}")
+
+def get_el_info():
+    try:
+        # Define the properties we're interested in
+        properties_of_interest = ['NAME', 'VERSION_ID']
+        info = {}
+
+        # Read the contents of /etc/os-release
+        with open('/etc/os-release', 'r') as file:
+            for line in file:
+                if '=' in line:  # Check if the line contains '=' character
+                    key, value = line.strip().split('=', 1)
+                    if key in properties_of_interest:
+                        # Remove quotes if they exist around the value
+                        info[key] = value.strip('"')
+
+        # Get the hostname of the system
+        hostname = socket.gethostname()
+
+        # Construct and display the message with EL distribution info and hostname
+        if 'NAME' in info and 'VERSION_ID' in info:
+            print(f"{hostname}: This system is using {info['NAME']} version {info['VERSION_ID']}.")
+        else:
+            print(f"{hostname}: Could not determine complete EL distribution information.")
+
+    except Exception as e:
+        print(f"Failed to get EL distribution information due to: {e}")
+
+if __name__ == "__main__":
+    get_kernel_version()
+    get_el_info()
+

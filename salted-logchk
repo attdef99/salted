@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+
+#########################################################
+# SALTED-LOGCHK SCRIPT                                  #
+# Script to check logs for important events on RedHat.  #
+# Requires sudo for reading logs.                       #
+# Analyzes and adds common strings to search terms.     #
+# Retry mechanism on subprocess failure.                #
+# Handles binary and non-UTF-8 encoded log data.        #
+# Filters for log-like files in additional directories. #
+# Displays matching patterns with log entries.          #
+# Filters out trivial and numeric patterns.             #
+# Default 30 days log check, custom days per log type.  #
+# Includes system name in display outputs.              #
+# Checks specific system logs for errors.               #
+# created by Matthew Boucher - 2024-05-08               #
+#########################################################
+
+import re
+import subprocess
+from collections import Counter
+import glob
+import os
+import time
+import platform
+
+# Define log files and base patterns to check
+base_patterns = ["error", "failed", "warning", "authentication failure", "refused connect"]
+log_files = {
+    "/var/log/messages": base_patterns,
+    "/var/log/secure": base_patterns
+}
+
+# Additional specific log files to check
+specific_log_files = [
+    "yum.log", "traps-install.log", "spooler", "boot.log", "cron", "wtmp"
+]
+
+# Adding folders with potential log files
+log_folders = [
+    "anaconda", "atop", "audit", "chrony", "insights-client", "private",
+    "qualys", "rhsm", "sa", "salt", "samba", "servicenow", "sssd",
+    "traps", "tuned", "vmware-imc"
+]
+
+# Custom days for specific logs
+custom_log_days = {
+    "vmware-imc": 4  # Custom day setting for vmware-imc logs
+}
+
+# Retrieve system name
+system_name = platform.node()
+
+def get_common_words(text, num_words=1):
+    """Extract the most common words from text, excluding numbers and trivial words."""
+    words = re.findall(r'\w+', text.lower())
+    words = [word for word in words if not word.isdigit() and word not in {'the', 'and', 'is', 'in', 'at', 'on', 'of'}]
+    common_words = Counter(words).most_common(num_words)
+    return [word[0] for word in common_words]
+
+def refine_patterns(words):
+    """Refine patterns to include only potentially significant error-related words."""
+    error_related = ["error", "fail", "warning", "denied", "unreachable", "exception", "fatal", "critical", "refused"]
+    return [word for word in words if any(err in word for err in error_related)]
+
+def is_binary_string(bytes_data):
+    """Check if the bytes data seems to be binary."""
+    textchars = bytearray({7,8,9,10,12,13,27} | set(range(0x20, 0x100)) - {0x7f})
+    return bool(bytes_data.translate(None, textchars))
+
+def run_subprocess_with_retry(command, max_retries=3):
+    """Run subprocess command with retries on failure."""
+    for attempt in range(max_retries):
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=False)
+        if result.returncode == 0:
+            if is_binary_string(result.stdout):
+                print(f"Binary file detected, skipping: {' '.join(command)}")
+                return None
+            try:
+                decoded_output = result.stdout.decode('utf-8', errors='ignore')
+                result.stdout = decoded_output
+                return result  # Return on success
+            except UnicodeDecodeError:
+                print(f"Unicode decode error on attempt {attempt + 1} for command {' '.join(command)}")
+        else:
+            print(f"Attempt {attempt + 1} failed for command {' '.join(command)}: {result.stderr.decode('utf-8', errors='ignore')}")
+    # Return the last failed result after all retries
+    return result
+
+def scan_logs(log_files):
+    """Scan specified log files for important patterns using sudo."""
+    for log_file, patterns in log_files.items():
+        print(f"Checking {log_file} on system {system_name}...")
+        if is_recent_file(log_file, get_days_for_log(log_file)):
+            command = ['sudo', 'cat', log_file]
+            result = run_subprocess_with_retry(command)
+            if not result or result.stderr:
+                print(f"Error accessing {log_file} after retries or binary file detected.")
+                print("")  # Blank line after each folder check
+                continue
+
+            if result.stdout == "":
+                print(f"No content in {log_file}.")
+                print("")  # Blank line after each folder check
+                continue
+
+            # Analyze and update search patterns with common words
+            common_words = get_common_words(result.stdout)
+            significant_words = refine_patterns(common_words)
+            updated_patterns = patterns + significant_words
+            print(f"Updated patterns for {log_file}: {updated_patterns}")
+
+            contents = result.stdout.splitlines()
+            found = False
+            for line in contents:
+                for pattern in updated_patterns:
+                    if re.search(pattern, line, re.IGNORECASE):
+                        print(f"Match found for pattern '{pattern}' in {log_file} on system {system_name}: {line.strip()}")
+                        found = True
+            if not found:
+                print(f"No important events found in {log_file}.")
+            print("")  # Blank line after each folder check
+
+def include_additional_logs(folders, patterns):
+    """Include logs from additional folders and specific log files."""
+    for folder in folders:
+        folder_path = os.path.join("/var/log", folder)
+        for log_path in glob.glob(f"{folder_path}/**/*.log", recursive=True):  # Looking specifically for .log files
+            if os.path.isfile(log_path) and is_recent_file(log_path, get_days_for_log(log_path)):
+                log_files[log_path] = patterns
+    # Adding specific log files from /var/log directly
+    for log_file in specific_log_files:
+        full_path = os.path.join("/var/log", log_file)
+        if os.path.isfile(full_path) and is_recent_file(full_path, get_days_for_log(full_path)):
+            log_files[full_path] = patterns
+
+def get_days_for_log(log_file):
+    """Determine the number of days to check logs based on log type or default."""
+    for key, days in custom_log_days.items():
+        if key in log_file:
+            return days
+    return 30  # Default days if not specified differently
+
+def is_recent_file(file_path, days):
+    """Check if the file was modified in the last `days` days."""
+    last_modified = os.path.getmtime(file_path)
+    days_ago = time.time() - (days * 24 * 60 * 60)
+    return last_modified > days_ago
+
+if __name__ == "__main__":
+    include_additional_logs(log_folders, base_patterns)
+    scan_logs(log_files)
+

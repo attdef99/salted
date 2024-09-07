@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+
+###################################
+#        SALTED SCRIPT            #
+#  Displays time since last boot  #
+#  and total online duration      #
+#  Checks recent reboots          #
+#  Created by Matthew Boucher on  #
+#           August 14, 2024       #
+###################################
+
+import subprocess
+from datetime import datetime, timedelta
+
+def get_boot_time():
+    """Returns the system boot time as a datetime object."""
+    try:
+        # Using the `uptime -s` command to get the last boot time
+        result = subprocess.run(['uptime', '-s'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        if result.returncode == 0:
+            boot_time_str = result.stdout.strip()
+            # Convert the boot time string to a datetime object
+            boot_time = datetime.strptime(boot_time_str, '%Y-%m-%d %H:%M:%S')
+            return boot_time
+        else:
+            print(f"Error: {result.stderr}")
+            return None
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        return None
+
+def calculate_uptime(boot_time):
+    """Calculates the system's total uptime."""
+    now = datetime.now()
+    uptime_duration = now - boot_time
+    return uptime_duration
+
+def check_reboot_status(uptime_duration):
+    """Checks and displays a message based on how long the system has been online."""
+    if uptime_duration < timedelta(hours=1):
+        print("The system was rebooted within the last hour.")
+    elif uptime_duration < timedelta(days=1):
+        print("The system was rebooted within the last day.")
+    elif uptime_duration >= timedelta(days=30):
+        print("The system has been online for about 30 days.")
+
+def main():
+    boot_time = get_boot_time()
+    if boot_time:
+        print(f"The system has been up since: {boot_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        uptime_duration = calculate_uptime(boot_time)
+        # Display uptime in days, hours, and minutes
+        days, seconds = uptime_duration.days, uptime_duration.seconds
+        hours = seconds // 3600
+        minutes = (seconds % 3600) // 60
+        print(f"Total uptime: {days} days, {hours} hours, {minutes} minutes")
+        
+        # Check and display reboot status message
+        check_reboot_status(uptime_duration)
+    else:
+        print("Could not determine uptime.")
+
+if __name__ == "__main__":
+    main()
+

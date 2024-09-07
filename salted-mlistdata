@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+
+###################################
+# SALTED-MLISTDATA SCRIPT         #
+# This script checks and adjusts  #
+# permissions for the mlist       #
+# binary, retrieves system name,  #
+# fetches and parses mlist data,  #
+# and displays specific fields.   #
+# created by Matthew Boucher on   #
+# 2024-07-30                      #
+###################################
+
+import platform
+import subprocess
+import os
+import stat
+
+def ensure_mlist_permissions():
+    mlist_path = '/usr/local/bin/mlist'
+    desired_perms = stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO  # 0777 or rwx for everyone
+    try:
+        current_perms = os.stat(mlist_path).st_mode
+        if (current_perms & desired_perms) != desired_perms:
+            print(f"Correcting permissions for {mlist_path}")
+            subprocess.run(['sudo', 'chmod', '777', mlist_path], check=True)
+        else:
+            print("Permissions are already set correctly.")
+    except FileNotFoundError:
+        print(f"Error: {mlist_path} does not exist.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error adjusting permissions: {e}")
+
+def get_system_name():
+    return platform.node()
+
+def retrieve_mlist_data(server_name):
+    try:
+        result = subprocess.run(['mlist', '-a', server_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, check=True)
+        if not result.stdout or "no records found" in result.stdout.lower():  # Assuming a specific message for no records
+            return None
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        return f"An error occurred while executing mlist: {e}\n{e.stderr}"
+
+def parse_mlist_data(mlist_data, field):
+    for line in mlist_data.splitlines():
+        if line.startswith(field + ":"):
+            return line.split(": ", 1)[1]
+    return None
+
+def extract_and_display_info(mlist_data):
+    if mlist_data is None:
+        print("No MLIST record found.")
+        return
+    fields = ["fqdn", "osname", "osvendor", "prodenv", "patch-group", "app-responsible-1", "app-responsible-2", "acquisition-date"]
+    extracted_info = {}
+    for field in fields:
+        value = parse_mlist_data(mlist_data, field)
+        if value is not None:
+            extracted_info[field] = value
+    if not extracted_info:
+        print("No relevant MLIST data found.")
+    else:
+        for key, value in extracted_info.items():
+            print(f"{key}: {value}")
+
+if __name__ == "__main__":
+    ensure_mlist_permissions()
+    server_name = get_system_name()
+    MLISTDATA = retrieve_mlist_data(server_name)
+    extract_and_display_info(MLISTDATA)
+

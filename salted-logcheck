@@ -1,0 +1,180 @@
+#!/usr/bin/env python3
+
+#########################################################
+# SALTED-LOGCHK SCRIPT                                  #
+# Scans logs for important events on RedHat systems.    #
+# Uses sudo for access, handles binary data, retries    #
+# on failure, and logs results to data/logchk.txt.      #
+# Displays system name, log details, and match count.   #
+# created by Matthew Boucher - 2024-05-08               #
+#########################################################
+
+import re
+import subprocess
+from collections import Counter
+import glob
+import os
+import time
+import platform
+
+base_patterns = ["error", "failed", "warning", "authentication failure", "refused connect"]
+
+specific_patterns = {
+    "anaconda": ["traceback", "disk", "partition", "install", "kickstart", "yum"],
+    "atop": ["load average", "cpu", "memory", "disk", "swap", "io", "network", "overload"],
+    "audit": ["denied", "violation", "policy", "access", "selinux", "authentication", "user", "root"],
+    "chrony": ["synchronization", "stratum", "offset", "unreachable", "refused", "server", "peer"],
+    "insights-client": ["analysis", "recommendation", "issue", "warning", "vulnerabilities", "system", "remediation"],
+    "private": ["permission", "denied", "access", "unauthorized", "root"],
+    "qualys": ["vulnerability", "threat", "scan", "remediation", "compliance", "misconfiguration"],
+    "rhsm": ["subscription", "entitlement", "expired", "license", "repository"],
+    "sa": ["cpu", "memory", "disk", "swap", "network", "io", "load", "performance"],
+    "salt": ["state", "highstate", "apply", "sls", "minion", "master"],
+    "samba": ["connection", "share", "permission", "authentication", "timeout"],
+    "servicenow": ["incident", "ticket", "integration", "sync", "api", "automation"],
+    "sssd": ["ldap", "kerberos", "pam", "login", "password"],
+    "traps": ["threat", "quarantine", "blocked", "malware", "exploit", "endpoint"],
+    "vmware-imc": ["vm", "host", "datastore", "network", "migration", "snapshot", "esxi", "vcenter"]
+}
+
+log_folders = [
+    "anaconda", "atop", "audit", "chrony", "insights-client", "private",
+    "qualys", "rhsm", "sa", "salt", "samba", "servicenow", "sssd",
+    "traps", "vmware-imc"
+]
+
+specific_log_files = [
+    "yum.log", "traps-install.log", "spooler", "boot.log", "cron"
+]
+
+custom_log_days = {
+    "vmware-imc": 4
+}
+
+system_name = platform.node()
+
+output_dir = "data"
+os.makedirs(output_dir, exist_ok=True)
+output_file = os.path.join(output_dir, "logchk.txt")
+
+line_count = 0
+log_count = 0
+log_files = {}
+
+def get_common_words(text, num_words=1):
+    words = re.findall(r'\w+', text.lower())
+    words = [word for word in words if not word.isdigit() and word not in {'the', 'and', 'is', 'in', 'at', 'on', 'of'}]
+    common_words = Counter(words).most_common(num_words)
+    return [word[0] for word in common_words]
+
+def refine_patterns(words):
+    error_related = ["error", "fail", "warning", "denied", "unreachable", "exception", "fatal", "critical", "refused"]
+    return [word for word in words if any(err in word for err in error_related)]
+
+def is_binary_string(bytes_data):
+    textchars = bytearray({7,8,9,10,12,13,27} | set(range(0x20, 0x100)) - {0x7f})
+    return bool(bytes_data.translate(None, textchars))
+
+def run_subprocess_with_retry(command, max_retries=3):
+    for attempt in range(max_retries):
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=False)
+        if result.returncode == 0:
+            if is_binary_string(result.stdout):
+                print(f"Binary file detected, skipping: {' '.join(command)}")
+                return None
+            try:
+                decoded_output = result.stdout.decode('utf-8', errors='ignore')
+                result.stdout = decoded_output
+                return result
+            except UnicodeDecodeError:
+                print(f"Unicode decode error on attempt {attempt + 1} for command {' '.join(command)}")
+        else:
+            print(f"Attempt {attempt + 1} failed for command {' '.join(command)}: {result.stderr.decode('utf-8', errors='ignore')}")
+    return result
+
+def scan_logs(log_files):
+    global line_count, log_count
+    for log_file, patterns in log_files.items():
+        log_count += 1
+        log_description = get_log_description(log_file)
+        combined_patterns = patterns + specific_patterns.get(log_description, [])
+        print(f"Log {log_count}: {log_file} ({log_description}) on system {system_name}...")
+        if is_recent_file(log_file, get_days_for_log(log_file)):
+            command = ['sudo', 'cat', log_file]
+            result = run_subprocess_with_retry(command)
+            if not result or result.stderr:
+                print(f"Error accessing {log_file} after retries or binary file detected.")
+                print("")
+                continue
+
+            if result.stdout == "":
+                print(f"No content in {log_file}.")
+                print("")
+                continue
+
+            contents = result.stdout.splitlines()
+            found = False
+            for line in contents:
+                for pattern in combined_patterns:
+                    if re.search(pattern, line, re.IGNORECASE):
+                        line_count += 1
+                        log_entry = f"{line_count}: Match found in Log {log_count} for pattern '{pattern}' in {log_file} on system {system_name}: {line.strip()}"
+                        print(log_entry)
+                        write_to_file(log_entry)
+                        found = True
+            if not found:
+                print(f"No important events found in {log_file}.")
+            print("")
+
+def get_log_description(log_file):
+    for key in specific_patterns:
+        if key in log_file:
+            return key
+    return "General log"
+
+def include_additional_logs(folders, base_patterns, log_files, specific_log_files):
+    global log_count
+    for folder in folders:
+        folder_path = os.path.join("/var/log", folder)
+        for log_path in glob.glob(f"{folder_path}/**/*.log", recursive=True):
+            if os.path.isfile(log_path):
+                log_count += 1
+                log_description = get_log_description(log_path)
+                combined_patterns = base_patterns + specific_patterns.get(log_description, [])
+                print(f"Log {log_count}: {log_path} ({log_description}) on system {system_name}...")
+                if is_recent_file(log_path, get_days_for_log(log_path)):
+                    log_files[log_path] = combined_patterns
+                else:
+                    print(f"Log {log_count}: {log_path} is too old to check.")
+    for log_file in specific_log_files:
+        full_path = os.path.join("/var/log", log_file)
+        if os.path.isfile(full_path):
+            log_count += 1
+            log_description = get_log_description(full_path)
+            combined_patterns = base_patterns + specific_patterns.get(log_description, [])
+            print(f"Log {log_count}: {full_path} ({log_description}) on system {system_name}...")
+            if is_recent_file(full_path, get_days_for_log(full_path)):
+                log_files[full_path] = combined_patterns
+            else:
+                print(f"Log {log_count}: {full_path} is too old to check.")
+
+def get_days_for_log(log_file):
+    for key, days in custom_log_days.items():
+        if key in log_file:
+            return days
+    return 30
+
+def is_recent_file(file_path, days):
+    last_modified = os.path.getmtime(file_path)
+    days_ago = time.time() - (days * 24 * 60 * 60)
+    print(f"Checking if {file_path} is recent (within {days} days). Last modified: {time.ctime(last_modified)}")
+    return last_modified > days_ago
+
+def write_to_file(entry):
+    with open(output_file, "a") as f:
+        f.write(entry + "\n")
+
+if __name__ == "__main__":
+    include_additional_logs(log_folders, base_patterns, log_files, specific_log_files)
+    scan_logs(log_files)
+

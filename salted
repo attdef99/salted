@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+
+###################################
+# SALTED SCRIPT                   #
+# Executes a series of system     #
+# monitoring and check scripts.   #
+# Created by Matthew Boucher      #
+# on 2024-08-17                   #
+###################################
+
+import subprocess
+import socket
+import sys
+import os
+import psutil
+import time
+
+def remove_file(filepath):
+    """Check for and delete the file if it exists."""
+    if os.path.exists(filepath):
+        try:
+            os.remove(filepath)
+        except Exception as e:
+            pass  # Silently handle errors
+
+def print_separator():
+    print("\n" * 3)
+
+def print_running_salted():
+    hostname = socket.gethostname()
+    print("Running SALTED on", hostname)
+    print()  # Blank line added
+
+def is_process_running(command):
+    """Check if a process with the given command name is running."""
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+        if command in ' '.join(proc.info['cmdline']):
+            return True
+    return False
+
+def run_command(command, index, total, background=False):
+    try:
+        label = " (running in background)" if background else ""
+        print(f"{index} of {total}: Running {command}{label}...")
+        cmd = ["./bon/salted/" + command]
+        if command == "salted-logcheck":
+            cmd = ["sudo"] + cmd  # Add sudo for salted-logcheck
+
+        if background:
+            process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # Give the process a moment to start
+            time.sleep(1)
+
+            # Check if the process is running
+            if is_process_running(command):
+                print(f"{command} is running correctly.")
+            else:
+                print(f"Error: {command} failed to start.")
+        else:
+            subprocess.run(cmd, check=True)  # Run normally
+        
+        if index % 5 == 0:
+            print("Hostname:", socket.gethostname())
+        print()  # Blank line
+    except FileNotFoundError:
+        print(f"Error: The {command} script was not found.")
+        sys.exit(1)  # Exit with error code
+    except subprocess.CalledProcessError:
+        print(f"Error running {command} on {socket.gethostname()}.")
+        print("Press Enter to continue...")
+        input()  # Pause execution until Enter is pressed
+    except Exception as e:
+        print(f"An error occurred while running {command}: {e}")
+        print("Press Enter to continue...")
+        input()  # Pause execution until Enter is pressed
+
+def check_errors_file():
+    try:
+        with open("./bon/salted/salted-errors.txt", "r") as file:
+            print("\nContents of salted-errors.txt:")
+            print(file.read())
+    except FileNotFoundError:
+        pass
+
+def check_logcheck_process():
+    """Check if the logcheck process is running."""
+    if is_process_running("salted-logcheck"):
+        print("salted-logcheck process is currently running.")
+    else:
+        print("salted-logcheck process is NOT running.")
+
+def main():
+    # List of files to be removed at the start
+    files_to_remove = [
+        ".salted.swp",
+        "data/logchk.txt",
+        "data/topdata.txt",
+        "data/spacecheck.txt",
+        "data/largefile.txt"
+    ]
+
+    # Remove the files in the list
+    for filepath in files_to_remove:
+        remove_file(filepath)
+
+    print_separator()
+    print_running_salted()
+
+    # Data scripts
+    data_scripts = [
+        "salted-logcheck",  # Run salted-logcheck with sudo in the background
+        "salted-topres",
+        "salted-cpumem",
+        "salted-spacecheck",  # Moved salted-spacecheck below cpumem
+        "salted-uname",
+        "salted-bok.noc",      # Moved above patchweek
+        "salted-patchweek",    # Moved below bok.noc
+        "salted-kernel",       # Moved above mlistdata
+        "salted-mlistdata",    # Moved below kernel
+        "salted-yumdate",     # Moved to the bottom
+        "salted-yumcheck",    # New salted-yumcheck added after yumdate
+        "salted-pythonchk",
+        "salted-vminfo",
+        "salted-saltuptime",   # Added to Data scripts list
+        "salted-dnscheck",     # Added check for salted-dnscheck
+        "salted-miscproc",     # Rewritten in lower case
+    ]
+
+    # Check scripts
+    check_scripts = [
+        "salted-sudochk",
+        "salted-iolatmon",
+        "salted-userlog",
+        "salted-servicefix",   # Uncommented
+        "salted-repocheck",
+        "salted-saltdatacheck",
+        "salted-services",
+        "salted-realmlist",
+        "salted-testping",     # Add check for salted-logcheck process before this
+        "salted-stateapply",  # Uncommented
+        "salted-showreports",  # Changed from salted-reportcheck
+    ]
+
+    total_commands = len(data_scripts) + len(check_scripts)
+
+    # Run data scripts
+    for i, command in enumerate(data_scripts, start=1):
+        background = (command == "salted-logcheck")  # Run only salted-logcheck in the background
+        run_command(command, i, total_commands, background=background)
+
+    # Check if the logcheck process is running before salted-testping
+    check_logcheck_process()
+
+    # Run check scripts
+    for i, command in enumerate(check_scripts, start=len(data_scripts) + 1):
+        run_command(command, i, total_commands)
+
+    check_errors_file()
+
+if __name__ == "__main__":
+    main()
+

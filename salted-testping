@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+
+###################################
+# SALTED-TESTPING SCRIPT          #
+# Summary: Executes 'sudo salt-   #
+# call test.ping' up to three     #
+# times if the service is         #
+# unresponsive and displays the   #
+# command output. Displays error  #
+# output separately if the command#
+# fails.                          #
+# created by Matthew Boucher on   #
+# 2024-03-25                      #
+###################################
+
+import subprocess
+import time
+
+def check_salt_master_service():
+    """
+    Checks the status of the salt-master service.
+    :return: True if the service is active and running, False otherwise.
+    """
+    try:
+        response = subprocess.run(
+            ['systemctl', 'status', 'salt-master'], 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE, 
+            universal_newlines=True,
+            timeout=10
+        )
+        if 'active (running)' in response.stdout:
+            print("Salt-master service is active and running.\n")
+            input("Press Enter to continue...")
+            return True
+        else:
+            return False
+    except subprocess.TimeoutExpired:
+        print("Timeout expired while checking salt-master service status.\n")
+        return False
+    except Exception as e:
+        print(f"Failed to check salt-master service status: {e}\n")
+        return False
+
+def check_salt_service(max_attempts=3):
+    """
+    Executes 'sudo salt-call test.ping' up to three times if the service is unresponsive,
+    displays the command output, and displays error output separately if the command fails.
+    :param max_attempts: Maximum number of attempts to ping the service.
+    :return: None
+    """
+    attempt = 0
+    while attempt < max_attempts:
+        try:
+            attempt += 1
+            # Running the salt-call test.ping command with compatibility for older Python versions
+            response = subprocess.run(
+                ['sudo', 'salt-call', 'test.ping'], 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE, 
+                universal_newlines=True,
+                timeout=10
+            )
+            
+            # Check if the service responded positively
+            if 'True' in response.stdout:
+                print("Result: SaltStack service is up and running.\n")
+                break  # Exit the loop as the service is up
+            else:
+                print(f"Attempt {attempt} of {max_attempts}:")
+                print("Result: SaltStack service is down or unresponsive. Retrying...\n")
+                if attempt == max_attempts:
+                    print("Final Result: Failed to confirm if SaltStack service is up after maximum attempts.\n")
+                else:
+                    time.sleep(1)  # Pause for 1 second before retrying
+        except subprocess.TimeoutExpired:
+            print(f"Attempt {attempt} of {max_attempts}: Command timed out. Retrying...\n")
+            if attempt == max_attempts:
+                print("Final Result: Command timed out after maximum attempts.\n")
+        except KeyboardInterrupt:
+            print("\nProcess interrupted by user. Exiting...\n")
+            break
+        except Exception as e:
+            print(f"Failed to check SaltStack service status on attempt {attempt}: {e}\n")
+            if attempt == max_attempts:
+                print("Final Result: Error encountered during command execution after maximum attempts.\n")
+
+if __name__ == "__main__":
+    try:
+        if check_salt_master_service():
+            print("This system seems to be a Salt Master. Skipping 'salt-call test.ping' command.\n")
+        else:
+            check_salt_service()
+    except KeyboardInterrupt:
+        print("\nProcess interrupted by user. Exiting...\n")
+

@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+
+###################################
+# SALTED-YUMCHECK SCRIPT          #
+# Check for yum updates and run   #
+# yum update, capturing errors    #
+# created by Matthew Boucher      #
+# 2024-09-04                      #
+###################################
+
+import subprocess
+import os
+
+def check_yum_updates():
+    try:
+        # Run 'sudo yum check-update' to see if updates are available
+        result = subprocess.run(
+            ['sudo', 'yum', 'check-update'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True
+        )
+        
+        # Check the return code: 0 means no updates, 100 means updates available
+        if result.returncode == 100:
+            print("Updates are available:")
+            print(result.stdout)
+        elif result.returncode == 0:
+            print("No updates available.")
+        else:
+            print(f"An unknown return code was encountered: {result.returncode}")
+            print("Output:", result.stdout)
+            print("Error:", result.stderr)
+        
+    except Exception as e:
+        print(f"An error occurred while checking for updates: {e}")
+
+def run_yum_update():
+    try:
+        # Run 'sudo yum update' to apply updates
+        result = subprocess.run(
+            ['sudo', 'yum', '-y', 'update'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True
+        )
+
+        # Check if 'error' is found in the output or error stream
+        if 'error' in result.stdout.lower() or 'error' in result.stderr.lower():
+            print("Errors were found by yum update.")
+            
+            # Create 'data' directory if it doesn't exist
+            if not os.path.exists('data'):
+                os.makedirs('data')
+            
+            # Write the error output to 'patchingerrors.txt'
+            with open('data/patchingerrors.txt', 'w') as error_file:
+                error_file.write("Yum Update Errors:\n")
+                error_file.write(result.stderr)
+
+        else:
+            print("Yum update completed successfully with no errors.")
+
+    except Exception as e:
+        print(f"An error occurred while running yum update: {e}")
+
+if __name__ == "__main__":
+    check_yum_updates()
+    run_yum_update()
+

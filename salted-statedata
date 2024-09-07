@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+import re
+import subprocess
+import os
+
+print(f"Current working directory: {os.getcwd()}")
+
+def load_error_command_files(folder_path):
+    error_command_files = {}
+    file_path = f"{folder_path}/salted-errorslist.txt"
+    with open(file_path, 'r') as file:
+        for line in file:
+            parts = line.strip().split(',', 1)
+            if len(parts) == 2:
+                error_command_files[parts[0]] = parts[1]
+    return error_command_files
+
+def execute_command_from_file(file_path):
+    try:
+        with open(file_path, 'r') as file:
+            command = file.read().strip()
+            subprocess.run(command, shell=True, check=True)
+            print(f"Command executed successfully: {command}")
+    except subprocess.CalledProcessError as e:
+        print(f"Command execution failed with error: {e}")
+    except FileNotFoundError:
+        print(f"Command file not found: {file_path}")
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+
+def find_error_segments(file_path):
+    error_segments = []
+    current_segment = []
+    with open(file_path, 'r') as file:
+        for line in file:
+            if line.strip() == '----------':
+                if 'Result: False' in current_segment:
+                    error_segments.append('\n'.join(current_segment))
+                current_segment = []
+            else:
+                current_segment.append(line.strip())
+        if 'Result: False' in current_segment:
+            error_segments.append('\n'.join(current_segment))
+    return error_segments
+
+def process_error_segments(segments, error_commands_folder):
+    error_command_files = load_error_command_files(error_commands_folder)
+    for segment in segments:
+        print("Processing error segment:")
+        print(segment)
+        with open(f'{error_commands_folder}/errorsegment.txt', 'a') as file:
+            file.write("Processing error segment:\n")
+            file.write(segment + "\n")
+            file.write("--------------------------------------------------\n")
+        for error_message, command_filename in error_command_files.items():
+            if error_message in segment:
+                print(f"Found known error: '{error_message}'. Executing command from associated file...")
+                command_file_path = f"{error_commands_folder}/{command_filename}"
+                execute_command_from_file(command_file_path)
+                break
+
+if __name__ == "__main__":
+    ERROR_COMMANDS_FOLDER = './salted-errors'
+    FILE_PATH = 'saltdata.txt'
+    error_segments = find_error_segments(FILE_PATH)
+    process_error_segments(error_segments, ERROR_COMMANDS_FOLDER)
+

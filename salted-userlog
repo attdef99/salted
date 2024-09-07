@@ -1,0 +1,171 @@
+#!/usr/bin/env python3
+
+# #################################################
+# SALTED-USERLOG SCRIPT                           #
+# Script to display the last full login date and  #
+# time for each user (excluding 'mboucher' and    #
+# 'wtmp'), with system hostname, and a human-     #
+# readable duration since their last login,       #
+# excluding root, reboot, and 00:00 duration.     #
+# Created by Matthew Boucher on 2023-05-13        #
+# #################################################
+
+import subprocess
+import socket
+import getpass
+from collections import defaultdict
+from datetime import datetime
+from dateutil import parser
+from dateutil.relativedelta import relativedelta
+import os
+
+# Define the contacts file path relative to the script's location
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+CONTACTS_FILE_PATH = os.path.join(SCRIPT_DIR, "contacts.txt")
+
+def check_who_logged_in():
+    """
+    Checks who is currently logged in, excluding the script runner.
+    Displays logged-in users but does not pause the script.
+    """
+    try:
+        current_user = getpass.getuser()
+        result = subprocess.run(['who'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        if result.returncode == 0:
+            logged_in_users = result.stdout.strip().split('\n')
+            filtered_users = [user for user in logged_in_users if not user.startswith(current_user)]
+            if filtered_users:
+                print("Currently logged in users (excluding you):")
+                print("\n".join(filtered_users))
+        else:
+            print(f"Error executing 'who' command: {result.stderr}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+def get_system_hostname():
+    """
+    Retrieves the hostname of the system using the socket module.
+    """
+    return socket.gethostname()
+
+def parse_login_line(line):
+    """
+    Parses a line from the 'last' command output and returns the user, date string, and time.
+    Handles cases where the day of the month is single or double digits.
+    """
+    parts = line.split()
+    if len(parts) >= 8 and parts[0] not in ['mboucher', 'wtmp']:
+        user = parts[0]
+        date_str = ' '.join(parts[3:7])
+        return user, date_str
+    return None, None
+
+def get_user_last_logins():
+    """
+    Executes the 'last' command and returns the most recent full login date and time for each user,
+    excluding entries by the root user, reboot records, sessions of '00:00' duration, and the users 'mboucher' and 'wtmp'.
+    Includes the duration since their last login in a human-readable format.
+    """
+    try:
+        result = subprocess.run(['last'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n')
+            user_logins = defaultdict(list)
+            for line in lines:
+                if 'root' not in line and 'reboot' not in line and '00:00' not in line:
+                    user, date_str = parse_login_line(line)
+                    if user and date_str:
+                        user_logins[user].append(date_str)
+
+            current_time = datetime.now()
+            last_logins = {}
+            for user, logins in user_logins.items():
+                if logins:
+                    try:
+                        last_login_time = parser.parse(logins[0])
+                    except ValueError:
+                        continue
+
+                    time_diff = relativedelta(current_time, last_login_time)
+                    diff_parts = []
+                    if time_diff.years > 0:
+                        diff_parts.append(f"{time_diff.years} years")
+                    if time_diff.months > 0:
+                        diff_parts.append(f"{time_diff.months} months")
+                    if time_diff.days > 0:
+                        diff_parts.append(f"{time_diff.days} days")
+                    if time_diff.hours > 0:
+                        diff_parts.append(f"{time_diff.hours} hours")
+                    if time_diff.minutes > 0:
+                        diff_parts.append(f"{time_diff.minutes} minutes")
+                    human_readable = ', '.join(diff_parts)
+                    last_logins[user] = (logins[0], human_readable)
+            return last_logins
+        else:
+            print("Error executing 'last' command:", result.stderr)
+    except Exception as e:
+        print("An error occurred:", str(e))
+
+def read_contacts():
+    """
+    Reads the contacts file and returns a dictionary mapping usernames to contact names.
+    """
+    contacts = {}
+    try:
+        if os.path.exists(CONTACTS_FILE_PATH):
+            with open(CONTACTS_FILE_PATH, 'r') as f:
+                for line in f:
+                    if ',' in line:
+                        user, contact = line.strip().split(',', 1)
+                        contacts[user] = contact
+    except Exception as e:
+        print(f"An error occurred while reading contacts: {e}")
+    return contacts
+
+def write_contact(user, contact):
+    """
+    Writes a new contact to the contacts file.
+    """
+    try:
+        with open(CONTACTS_FILE_PATH, 'a') as f:
+            f.write(f"{user},{contact}\n")
+    except Exception as e:
+        print(f"An error occurred while writing contact: {e}")
+
+def ensure_contacts_for_users(users):
+    """
+    Ensures that each user has a contact listed in the contacts file.
+    If not, prompts for the contact name and writes it to the file.
+    """
+    contacts = read_contacts()
+    for user in users:
+        if user not in contacts:
+            contact = input(f"Please enter the contact name for user '{user}': ")
+            write_contact(user, contact)
+            contacts[user] = contact
+    return contacts
+
+def main():
+    # Check who is logged in before proceeding
+    check_who_logged_in()
+
+    hostname = get_system_hostname()
+    last_logins = get_user_last_logins()
+    if last_logins:
+        # Ensure all users have a contact
+        contacts = ensure_contacts_for_users(last_logins.keys())
+
+        # Define fixed-width columns
+        print(f"Most recent logins on {hostname}:")
+        print(f"{'Admin Contact':<20}{'User':<15}{'Last Login':<25}{'Duration Since Last Login':<30}")
+        print("=" * 90)
+        for user, (datetime_str, since) in last_logins.items():
+            contact = contacts.get(user, "unknown")
+            print(f"{contact:<20}{user:<15}{datetime_str:<25}{since:<30}")
+    else:
+        print("No user logins in the last month.")
+
+if __name__ == '__main__':
+    main()
+

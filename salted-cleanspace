@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+
+###################################
+# SALTED-CLEANSPACE SCRIPT        #
+# Searches for files that might   #
+# be safe to delete to free space #
+# on partitions over 80% full     #
+# Created by Matthew Boucher      #
+# on 2024-08-19                   #
+###################################
+
+import os
+import subprocess
+import time
+import socket
+
+# Define parameters
+exclude_paths = ["/nethome"]
+max_age_days = 30  # Files older than this may be deleted
+min_size_mb = 250  # Files larger than this may be deleted
+usage_threshold = 80  # Percentage of disk usage to trigger cleanup
+avail_space_threshold_gb = 100  # Skip partitions with more than this much free space
+
+# File to store found information
+output_file = os.path.join('data', 'largefile.txt')
+
+# Ensure the data directory exists
+os.makedirs(os.path.dirname(output_file), exist_ok=True)
+
+# Check and delete the output file if it exists
+if os.path.exists(output_file):
+    os.remove(output_file)
+
+# Retrieve hostname
+hostname = socket.gethostname()
+
+# Write the hostname at the beginning of the file
+with open(output_file, 'a') as f:
+    f.write(f"Hostname: {hostname}\n")
+    f.write("="*35 + "\n\n")
+
+# Counters for files found
+files_under_1gb = 0
+files_over_1gb = 0
+
+# Get current time
+now = time.time()
+
+# Function to check if the file is old and large enough
+def is_old_and_large(file_path):
+    try:
+        # Skip broken symlinks silently
+        if os.path.islink(file_path) and not os.path.exists(file_path):
+            return False
+        file_stats = os.stat(file_path)
+        file_age_days = (now - file_stats.st_mtime) / 86400
+        file_size_mb = file_stats.st_size / (1024 * 1024)
+        return file_age_days > max_age_days and file_size_mb > min_size_mb
+    except FileNotFoundError:
+        # File does not exist anymore, just skip it silently
+        return False
+    except Exception as e:
+        print(f"Error processing file {file_path}: {e}")
+        return False
+
+# Function to determine if the path should be excluded
+def is_excluded_path(path, mount_points):
+    # Exclude any path that is part of /nethome or is a mount point
+    return any(os.path.commonpath([path, exclude]) == exclude for exclude in exclude_paths) or path in mount_points
+
+# Function to scan directories for files
+def scan_directory(path, mount_points):
+    global files_under_1gb, files_over_1gb
+    for root, dirs, files in os.walk(path):
+        if is_excluded_path(root, mount_points):
+            continue
+        for name in files:
+            file_path = os.path.join(root, name)
+            if is_old_and_large(file_path):
+                file_size_gb = os.path.getsize(file_path) / (1024 * 1024 * 1024)
+                df_info = get_df_info_for_file(file_path)
+                
+                # Write the detailed information to the output file
+                with open(output_file, 'a') as f:
+                    f.write(f"1. Potential File: {file_path}\n")
+                    f.write(f"   Size: {file_size_gb:.2f} GB\n")
+                    f.write(f"   Disk Usage Info:\n")
+                    f.write("   " + "-"*65 + "\n")
+                    f.write(df_info)
+                    f.write("   " + "-"*65 + "\n\n")
+                
+                # Update counters based on file size
+                if file_size_gb > 1:
+                    files_over_1gb += 1
+                else:
+                    files_under_1gb += 1
+
+# Function to get partitions over the threshold
+def get_full_partitions():
+    try:
+        result = subprocess.run(['sudo', 'df', '-BG'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        lines = result.stdout.splitlines()
+        partitions = []
+        for line in lines[1:]:
+            parts = line.split()
+            if len(parts) >= 6:
+                usage = int(parts[4].strip('%'))
+                avail_space_gb = int(parts[3].strip('G'))
+                if usage > usage_threshold and avail_space_gb <= avail_space_threshold_gb:
+                    partitions.append((parts[5], parts[0]))
+        return partitions
+    except Exception as e:
+        print(f"Error running df command: {e}")
+        return []
+
+# Get mount points from df output
+def get_mount_points():
+    try:
+        result = subprocess.run(['sudo', 'df', '-h'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        lines = result.stdout.splitlines()
+        mount_points = [line.split()[5] for line in lines[1:] if len(line.split()) >= 6]
+        return mount_points
+    except Exception as e:
+        print(f"Error running df command: {e}")
+        return []
+
+# Function to get df -h info for a specific file
+def get_df_info_for_file(file_path):
+    try:
+        result = subprocess.run(['df', '-h', file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        return result.stdout
+    except Exception as e:
+        return f"Error getting df -h info for {file_path}: {e}"
+
+# Get partitions over 80% full with less than 100GB available space
+full_partitions = get_full_partitions()
+
+# Get all mount points
+mount_points = get_mount_points()
+
+# Check if any partitions meet the threshold
+if not full_partitions:
+    with open(output_file, 'a') as f:
+        f.write("\nNo partitions over thresholds.\n")
+else:
+    # Scan each partition
+    for partition, device in full_partitions:
+        with open(output_file, 'a') as f:
+            f.write("===========================================\n")
+            f.write(f"Scanning Partition: {partition}\n")
+            f.write(f"Device: {device}\n")
+            f.write("===========================================\n\n")
+        
+        if os.path.exists(partition):
+            if partition == '/':
+                # Scan all directories under / except mounted ones and /nethome
+                for subdir in os.listdir('/'):
+                    subdir_path = os.path.join('/', subdir)
+                    if subdir_path not in mount_points and not any(os.path.commonpath([subdir_path, exclude]) == exclude for exclude in exclude_paths):
+                        scan_directory(subdir_path, mount_points)
+            else:
+                scan_directory(partition, mount_points)
+        else:
+            with open(output_file, 'a') as f:
+                f.write(f"Partition not found: {partition}\n")
+
+# Display the final counts
+with open(output_file, 'a') as f:
+    f.write("\nScan Complete.\n")
+    f.write(f"Files found under 1GB: {files_under_1gb}\n")
+    f.write(f"Files found over 1GB: {files_over_1gb}\n")
+
+print(f"Scan complete. Results written to {output_file}.\n")
+

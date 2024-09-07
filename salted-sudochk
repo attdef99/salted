@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+
+###########################################################
+# SUDOCK SCRIPT                                           #
+# Summary: Checks for passwordless sudo access and        #
+# outputs the status both for direct viewing and for      #
+# use by calling scripts. Ensures compatibility with      #
+# Python versions older than 3.7.                         #
+# created by Matthew Boucher on 2024-04-02                #
+###########################################################
+
+import subprocess
+import sys
+import re  # Import the regular expressions module
+
+def check_sudo_access():
+    try:
+        # Explicitly capture stdout and stderr without using capture_output
+        result = subprocess.run(['sudo', '-n', '-l'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        # Decode stdout and stderr from bytes to string
+        stdout = result.stdout.decode('utf-8')
+
+        # Use regex to find the specific pattern indicating passwordless sudo access
+        sudo_indicator_pattern = r"\(ALL\s*:\s*ALL\)\s*NOPASSWD\s*:\s*ALL"
+        
+        # Search for the pattern in stdout
+        if re.search(sudo_indicator_pattern, stdout):
+            print("You have passwordless sudo access.")
+        else:
+            print("You do NOT have passwordless sudo access.")
+
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+if __name__ == "__main__":
+    check_sudo_access()
+

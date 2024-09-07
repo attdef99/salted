@@ -1,0 +1,209 @@
+#!/usr/bin/env python3
+
+###################################
+#       SALTED-DNSCHECK SCRIPT    #
+# Check current DNS IP addresses  #
+# created by Matthew Boucher      #
+# 2024-05-22                      #
+###################################
+
+import subprocess
+import platform
+import re
+
+# Define DNS servers
+coda_dns_servers = [
+    "143.215.77.4",
+    "130.207.244.251",
+    "130.207.244.244"
+]
+
+oit_bcdc_dns_servers = [
+    "128.61.244.232",
+    "128.61.244.254",
+    "130.207.165.140"
+]
+
+def pause_if_fail(status):
+    if status == "FAIL":
+        input("Press Enter to continue...")
+
+def get_ip_and_nslookup():
+    # Get the current IP address
+    current_ip = get_current_ip()
+    if current_ip:
+        status = perform_nslookup(current_ip, hostname_check=True)
+        pause_if_fail(status)
+    
+    # Check if the IP starts with "10.138"
+    if current_ip and current_ip.startswith("10.138"):
+        # Get the system hostname
+        system_hostname = platform.node()
+        if system_hostname:
+            status = perform_nslookup(system_hostname, dns_server="8.8.8.8", remote_check=True)
+            if status != "NOT REACHABLE":
+                pause_if_fail(status)
+    
+    # Check IP location
+    if current_ip:
+        check_ip_location(current_ip)
+
+def perform_nslookup(address, dns_server=None, remote_check=False, hostname_check=False):
+    command = ["nslookup", address]
+    if dns_server:
+        command.append(dns_server)
+    
+    try:
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=1)
+        if result.returncode == 0:
+            output = result.stdout
+            if remote_check:
+                if "server can't find" in output.lower():
+                    print(f"8.8.8.8 remote nslookup check: FAIL")
+                    return "FAIL"
+                else:
+                    print(f"8.8.8.8 remote nslookup check: PASS")
+                    return "PASS"
+            else:
+                if hostname_check:
+                    hostname = platform.node()
+                    if hostname in output:
+                        print(f"nslookup check for {hostname} ({address}): PASS\n")
+                        return "PASS"
+                    else:
+                        print(f"nslookup check for {hostname} ({address}): FAIL")
+                        return "FAIL"
+                else:
+                    if "server can't find" in output.lower():
+                        print(f"nslookup check for {address}: FAIL")
+                        return "FAIL"
+                    else:
+                        print(f"nslookup check for {address}: PASS")
+                        return "PASS"
+        else:
+            print(f"Error performing nslookup for {address}:\n{result.stderr}")
+            return "FAIL"
+    except subprocess.TimeoutExpired:
+        if not remote_check:
+            print(f"nslookup command timed out for {address}")
+        return "NOT REACHABLE"
+    except Exception as e:
+        print(f"An error occurred during nslookup: {e}")
+        return "FAIL"
+
+def get_current_ip():
+    system = platform.system()
+    if system == "Windows":
+        command = ["ipconfig"]
+    elif system == "Linux" or system == "Darwin":  # Darwin is macOS
+        command = ["ifconfig"]
+    else:
+        raise Exception("Unsupported operating system")
+
+    try:
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        if result.returncode != 0:
+            print(f"Error: {result.stderr}")
+            return None
+
+        current_ip = parse_ip_address(result.stdout)
+        if current_ip:
+            print("")
+        else:
+            print("Could not determine the current IP address.")
+        return current_ip
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
+
+def parse_ip_address(output):
+    if platform.system() == "Windows":
+        match = re.search(r"IPv4 Address[. ]+: ([\d.]+)", output)
+    else:
+        match = re.search(r"inet (\d+\.\d+\.\d+\.\d+)", output)
+    return match.group(1) if match else None
+
+def check_ip_location(ip):
+    if ip.startswith("10.138"):
+        print("The current IP address belongs to the Coda Data Center network.\n")
+        expected_dns_servers = coda_dns_servers
+    else:
+        print("The current IP address belongs to the OIT BCDC Data Center network.\n")
+        expected_dns_servers = oit_bcdc_dns_servers
+    
+    get_dns_addresses(expected_dns_servers)
+
+def get_dns_addresses(expected_dns_servers):
+    system = platform.system()
+    if system == "Windows":
+        command = ["nslookup", "localhost"]
+    elif system == "Linux":
+        command = ["cat", "/etc/resolv.conf"]
+    elif system == "Darwin":  # Darwin is macOS
+        command = ["networksetup", "-getdnsservers", "Wi-Fi"]
+    else:
+        raise Exception("Unsupported operating system")
+
+    try:
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        if result.returncode != 0:
+            print(f"Error: {result.stderr}")
+            return
+
+        if system == "Windows":
+            current_dns = parse_dns_windows(result.stdout)
+        elif system == "Linux":
+            current_dns = parse_dns_linux(result.stdout)
+        elif system == "Darwin":
+            current_dns = parse_dns_macos(result.stdout)
+
+        print_dns_servers(current_dns)
+        check_dns_servers(current_dns, expected_dns_servers)
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+def parse_dns_windows(output):
+    lines = output.splitlines()
+    dns_ips = []
+    for line in lines:
+        if "Address:" in line:
+            dns_ips.append(line.split("Address:")[1].strip())
+    return dns_ips
+
+def parse_dns_linux(output):
+    lines = output.splitlines()
+    dns_ips = []
+    for line in lines:
+        if line.startswith("nameserver"):
+            dns_ips.append(line.split()[1])
+    return dns_ips
+
+def parse_dns_macos(output):
+    lines = output.splitlines()
+    if "There aren't any DNS Servers set on Wi-Fi." in lines:
+        return []
+    return lines
+
+def print_dns_servers(current_dns):
+    print("Current DNS IP Addresses:")
+    for ip in current_dns:
+        print(ip)
+
+def check_dns_servers(current_dns, expected_dns_servers):
+    unexpected_dns = [ip for ip in current_dns if ip not in expected_dns_servers]
+    if unexpected_dns:
+        print("\nThese DNS IP Addresses are unexpected for your current network:")
+        for ip in unexpected_dns:
+            print(ip)
+        print("\nExpected DNS IP Addresses for your network:")
+        for ip in expected_dns_servers:
+            print(ip)
+    else:
+        print("\nAll current DNS IP addresses are as expected for your network.")
+
+if __name__ == "__main__":
+    get_ip_and_nslookup()
+    current_ip = get_current_ip()
+    if current_ip:
+        check_ip_location(current_ip)
+

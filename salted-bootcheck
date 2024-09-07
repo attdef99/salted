@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+
+###################################
+# SALTED-BOOTCHK SCRIPT           #
+# Checks all system reboot starts #
+# and stops from the last 4 months#
+# in the logs.                    #
+# Created by Matthew Boucher on   #
+# 2024-05-06                      #
+###################################
+
+import subprocess
+import sys
+
+def get_reboot_events():
+    try:
+        # Command to fetch all reboot start and stop logs from the last four months
+        command = "sudo journalctl _UID=0 --since='-4 months' | grep -E 'Starting Reboot|Stopped Reboot'"
+        # Running the command
+        result = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        
+        # Check if the command was executed successfully
+        if result.returncode == 0:
+            # Output the result
+            print("All System Reboot Start and Stop Events from the Last 4 Months:")
+            print(result.stdout)
+        else:
+            print("Failed to retrieve reboot events:", file=sys.stderr)
+            print(result.stderr, file=sys.stderr)
+    except Exception as e:
+        print(f"An error occurred: {str(e)}", file=sys.stderr)
+
+if __name__ == "__main__":
+    get_reboot_events()
+

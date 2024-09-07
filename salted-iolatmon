@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+
+###################################
+# SALTED-LATMON-PRO SCRIPT        #
+# Measure and calculate read,     #
+# write, and total latency        #
+# created by Matthew Boucher      #
+# 2024-06-06                      #
+###################################
+
+import time
+import os
+import random
+import math
+import socket
+
+# Pull the system's hostname
+hostname = socket.gethostname()
+print(f"Latency check on: Running latency on {hostname}\n")
+
+def measure_read_latency(file_path):
+    start_time = time.time()
+    with open(file_path, 'r') as f:
+        f.read()
+    end_time = time.time()
+    return end_time - start_time
+
+def measure_write_latency(file_path):
+    data = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz', k=1024))
+    start_time = time.time()
+    with open(file_path, 'w') as f:
+        f.write(data)
+    end_time = time.time()
+    return end_time - start_time
+
+def calculate_total_latency(read_latencies, write_latencies, read_ops, write_ops):
+    total_ops = read_ops + write_ops
+    if total_ops == 0:
+        return 0
+
+    avg_read_latency = sum(read_latencies) / read_ops if read_ops else 0
+    avg_write_latency = sum(write_latencies) / write_ops if write_ops else 0
+
+    weighted_read_latency = (avg_read_latency * read_ops) / total_ops
+    weighted_write_latency = (avg_write_latency * write_ops) / total_ops
+
+    return weighted_read_latency + weighted_write_latency
+
+def round_up_latency(latency):
+    return math.ceil(latency * 1000) / 1000
+
+def main():
+    test_file = 'latency_test_file.tmp'
+    additional_files = ['spacecheck.txt', 'miiscproc.txt']
+    read_ops = 10
+    write_ops = 10
+
+    # Create the file and write initial content
+    with open(test_file, 'w') as f:
+        f.write('Initial content for latency testing.')
+
+    # Perform read latency measurements
+    read_latencies = []
+    for _ in range(read_ops):
+        read_latencies.append(measure_read_latency(test_file))
+
+    # Perform write latency measurements
+    write_latencies = []
+    for _ in range(write_ops):
+        write_latencies.append(measure_write_latency(test_file))
+
+    # Calculate average, high, and low latencies
+    avg_read_latency = round_up_latency(sum(read_latencies) / read_ops if read_ops else 0)
+    avg_write_latency = round_up_latency(sum(write_latencies) / write_ops if write_ops else 0)
+
+    high_read_latency = round_up_latency(max(read_latencies) if read_latencies else 0)
+    low_read_latency = round_up_latency(min(read_latencies) if read_latencies else 0)
+    high_write_latency = round_up_latency(max(write_latencies) if write_latencies else 0)
+    low_write_latency = round_up_latency(min(write_latencies) if write_latencies else 0)
+
+    total_latency = round_up_latency(calculate_total_latency(read_latencies, write_latencies, read_ops, write_ops))
+
+    # Output the latency results with space between groupings
+    print(f'High Read Latency:     {high_read_latency:.3f} seconds')
+    print(f'Low Read Latency:      {low_read_latency:.3f} seconds')
+    print(f'Average Read Latency:  {avg_read_latency:.3f} seconds\n')
+
+    print(f'High Write Latency:    {high_write_latency:.3f} seconds')
+    print(f'Low Write Latency:     {low_write_latency:.3f} seconds')
+    print(f'Average Write Latency: {avg_write_latency:.3f} seconds\n')
+
+    print(f'Total Latency:         {total_latency:.3f} seconds\n')
+
+    # Check if any average latency exceeds 2 seconds and alert if so
+    if avg_read_latency > 2:
+        print("\nAlert: Average Read Latency exceeds 2 seconds!")
+    if avg_write_latency > 2:
+        print("\nAlert: Average Write Latency exceeds 2 seconds!")
+    if avg_read_latency > 2 or avg_write_latency > 2:
+        input("\nLatency exceeds 2 seconds. Pausing the script. Press Enter to continue...")
+
+    # Clean up
+    files_to_delete = [test_file] + additional_files
+    for file in files_to_delete:
+        if os.path.exists(file):
+            os.remove(file)
+
+    # Blank line at the end
+    print()
+
+if __name__ == "__main__":
+    main()
+

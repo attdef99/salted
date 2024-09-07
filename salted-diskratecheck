@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+
+###################################
+#  SALTED-DISKRATECHECK SCRIPT    #
+# Checks current disk usage       #
+# and writes to a file            #
+# created by Matthew Boucher      #
+# 2024-06-05                      #
+###################################
+
+import subprocess
+
+def check_disk_usage():
+    # Run the df -h command
+    result = subprocess.run(['df', '-h'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    
+    # Write the output to the specified file
+    with open('./data/df-hsettingslast.txt', 'w') as file:
+        file.write(result.stdout)
+    
+    # Display the output to the console
+    print(result.stdout)
+    
+    # Handle any errors by writing them to the file and displaying them
+    if result.stderr:
+        with open('./data/df-hsettingslast.txt', 'a') as file:
+            file.write('\nErrors:\n')
+            file.write(result.stderr)
+        print('Errors:')
+        print(result.stderr)
+
+if __name__ == "__main__":
+    check_disk_usage()
+
